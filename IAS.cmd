@@ -4,34 +4,57 @@
 :: Add custom name in IDM license info, prefer to write it in English and/or numeric in below line after = sign,
 set name=
 
+: Parameters_info
 
-
+:: For activation in unattended mode, run the script with /act parameter.
+:: For reset in unattended mode, run the script with /res parameter.
+:: To enable silent mode with above two methods, run the script with /s parameter.
 
 ::========================================================================================================================================
 
 :: Re-launch the script with x64 process if it was initiated by x86 process on x64 bit Windows
 :: or with ARM64 process if it was initiated by x86/ARM32 process on ARM64 Windows
 
-if exist %SystemRoot%\Sysnative\cmd.exe (
 set "_cmdf=%~f0"
+for %%# in (%*) do (
+if /i "%%#"=="r1" set r1=1
+if /i "%%#"=="r2" set r2=1
+)
+
+if exist %SystemRoot%\Sysnative\cmd.exe if not defined r1 (
 setlocal EnableDelayedExpansion
-start %SystemRoot%\Sysnative\cmd.exe /c ""!_cmdf!" %*"
+start %SystemRoot%\Sysnative\cmd.exe /c ""!_cmdf!" %* r1"
 exit /b
 )
 
 :: Re-launch the script with ARM32 process if it was initiated by x64 process on ARM64 Windows
 
-if exist %SystemRoot%\Windows\SyChpe32\kernel32.dll if exist %SystemRoot%\SysArm32\cmd.exe if %PROCESSOR_ARCHITECTURE%==AMD64 (
-set "_cmdf=%~f0"
+if exist %SystemRoot%\SysArm32\cmd.exe if %PROCESSOR_ARCHITECTURE%==AMD64 if not defined r2 (
 setlocal EnableDelayedExpansion
-start %SystemRoot%\SysArm32\cmd.exe /c ""!_cmdf!" %*"
+start %SystemRoot%\SysArm32\cmd.exe /c ""!_cmdf!" %* r2"
 exit /b
 )
 
 ::  Set Path variable, it helps if it is misconfigured in the system
 
-set "SysPath=%SystemRoot%\System32"
-set "Path=%SysPath%;%SystemRoot%;%SysPath%\Wbem;%SysPath%\WindowsPowerShell\v1.0\"
+set "PATH=%SystemRoot%\System32;%SystemRoot%\System32\wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0\"
+if exist "%SystemRoot%\Sysnative\reg.exe" (
+set "PATH=%SystemRoot%\Sysnative;%SystemRoot%\Sysnative\wbem;%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\;%PATH%"
+)
+
+::  Check LF line ending
+
+pushd "%~dp0"
+>nul findstr /rxc:".*" "%~nx0"
+if not %errorlevel%==0 (
+echo:
+echo Error: Script either has LF line ending issue, or it failed to read itself.
+echo:
+ping 127.0.0.1 -n 6 > nul
+popd
+exit /b
+)
+popd
 
 ::========================================================================================================================================
 
@@ -57,10 +80,15 @@ if /i "%%A"=="/s"   set Unattended=1&set Silent=1
 
 ::========================================================================================================================================
 
+set winbuild=1
 set "nul=>nul 2>&1"
 set "_psc=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-set winbuild=1
 for /f "tokens=6 delims=[]. " %%G in ('ver') do set winbuild=%%G
+
+set _NCS=1
+if %winbuild% LSS 10586 set _NCS=0
+if %winbuild% GEQ 10586 reg query "HKCU\Console" /v ForceV2 2>nul | find /i "0x0" 1>nul && (set _NCS=0)
+
 call :_colorprep
 set "nceline=echo: &echo ==== ERROR ==== &echo:"
 set "line=________________________________________________________________________________________"
@@ -89,6 +117,9 @@ goto done2
 
 ::========================================================================================================================================
 
+::  Fix for the special characters limitation in path name
+::  Thanks to @abbodi1406
+
 set "_work=%~dp0"
 if "%_work:~-1%"=="\" set "_work=%_work:~0,-1%"
 
@@ -104,8 +135,10 @@ setlocal EnableDelayedExpansion
 
 ::========================================================================================================================================
 
-%nul% reg query HKU\S-1-5-19 || (
-if not defined _elev %nul% %_psc% "start cmd.exe -arg '/c \"!_PSarg:'=''!\"' -verb runas" && exit /b
+::  Elevate script as admin and pass arguments and preventing loop
+
+>nul fltmc || (
+if not defined _elev %_psc% "start cmd.exe -arg '/c \"!_PSarg:'=''!\"' -verb runas" && exit /b
 %nceline%
 echo This script require administrator privileges.
 echo To do so, right click on this script and select 'Run as administrator'.
@@ -147,8 +180,8 @@ if defined activate goto _activate
 :MainMenu
 
 cls
-title  IDM Activate
-mode 65, 25
+title  IDM Activation Script 0.8
+mode 75, 30
 
 :: Check firewall status
 
@@ -179,25 +212,27 @@ echo:
 echo:
 echo:
 echo:
-echo:       ___________________________________________________ 
-echo:                                                          
-echo:          [1] Activate IDM                                
-echo:          [2] Reset IDM activation status
-echo:          _____________________________________________   
-echo:                                                          
-call :_color2 %_White% "          [3] Change Windows Firewall  " %_col% "[%_status%]"
-echo:          _____________________________________________   
-echo:                                                          
-echo:          [4] Help Doc                                  
-echo:          [5] Exit                                        
-echo:       ___________________________________________________
-echo:   
-echo Enter the number of the option
+echo:
+echo:
+echo:            ___________________________________________________ 
+echo:                                                               
+echo:               [1] Activate IDM                                
+echo:               [2] Reset IDM Activation / Trial in Registry
+echo:               _____________________________________________   
+echo:                                                               
+call :_color2 %_White% "               [3] Toggle Windows Firewall  " %_col% "[%_status%]"
+echo:               _____________________________________________   
+echo:                                                               
+echo:               [4] ReadMe                                      
+echo:               [5] Exit                                        
+echo:            ___________________________________________________
+echo:         
+call :_color2 %_White% "             " %_Green% "Enter a menu option in the Keyboard [1,2,3,4,5]"
 choice /C:12345 /N
 set _erl=%errorlevel%
 
 if %_erl%==5 exit /b
-if %_erl%==4 call :readme&goto MainMenu
+if %_erl%==4 start https://github.com/WindowsAddict/HappyLeslieAlexander/IDM-Activator & goto MainMenu
 if %_erl%==3 call :_tog_Firewall&goto MainMenu
 if %_erl%==2 goto _reset
 if %_erl%==1 goto _activate
@@ -213,27 +248,6 @@ netsh AdvFirewall Set AllProfiles State Off >nul
 netsh AdvFirewall Set AllProfiles State On >nul
 )
 exit /b
-
-::========================================================================================================================================
-
-:readme
-
-set "_ReadMe=%SystemRoot%\Temp\ReadMe.txt"
-if exist "%_ReadMe%" del /f /q "%_ReadMe%" %nul%
-call :export txt "%_ReadMe%"
-start notepad "%_ReadMe%"
-timeout /t 2 %nul%
-del /f /q "%_ReadMe%"
-exit /b
-
-
-::  Extract the text from batch script without character and file encoding issue
-::  Thanks to @abbodi1406
-
-:export
-
-%nul% %_psc% "$f=[io.file]::ReadAllText('!_batp!') -split \":%~1\:.*`r`n\"; [io.file]::WriteAllText('%~2',$f[1].Trim(),[System.Text.Encoding]::ASCII);"
-exit/b
 
 ::========================================================================================================================================
 
@@ -260,9 +274,9 @@ echo:
 echo %line%
 echo:
 if not defined _error (
-call :_color %Green% "IDM activation - successfully reset in registry"
+call :_color %Green% "IDM Activation - Trial is successfully reset in the registry."
 ) else (
-call :_color %Red% "Unable to fully reset IDM activation - trial"
+call :_color %Red% "Failed to completely reset IDM Activation - Trial."
 )
 
 goto done
@@ -280,8 +294,8 @@ echo:
 set _error=
 
 if not exist "!IDMan!" (
-call :_color %Red% "Not installed IDM [Internet Download Manager] "
-echo You can download IDM from https://www.internetdownloadmanager.com/download.html
+call :_color %Red% "IDM [Internet Download Manager] is not Installed."
+echo You can download it from  https://www.internetdownloadmanager.com/download.html
 goto done
 )
 
@@ -292,11 +306,11 @@ ping -n 1 internetdownloadmanager.com >nul || (
 )
 
 if not [%errorlevel%]==[0] (
-call :_color %Red% "Unable to connect to internetdownloadmanager.com, stopingֹ..."
+call :_color %Red% "Unable to connect internetdownloadmanager.com, aborting..."
 goto done
 )
 
-echo Internet connected
+echo Internet is connected.
 
 %idmcheck% && taskkill /f /im idman.exe
 
@@ -313,7 +327,7 @@ if defined _derror call :f_reset & goto done
 
 set lockedkeys=
 set "_action=call :lock_key"
-echo Locking registry entries...
+echo Locking registry keys...
 echo:
 call :action
 
@@ -321,9 +335,9 @@ if not defined _error if [%lockedkeys%] GEQ [7] (
 echo:
 echo %line%
 echo:
-call :_color %Green% "IDM activated successfully"
+call :_color %Green% "IDM is successfully activated."
 echo:
-call :_color %Gray% "If the piracy prompt appears, run the activation option again and it will not appear after that"
+call :_color %Gray% "If fake serial screen appears, run activation again, after that it wont appear."
 goto done
 )
 
@@ -341,7 +355,7 @@ timeout /t 3
 exit /b
 )
 
-call :_color %_Yellow% "Press any key to go back..."
+call :_color %_Yellow% "Press any key to return..."
 pause >nul
 goto MainMenu
 
@@ -357,7 +371,6 @@ pause >nul
 exit /b
 
 ::========================================================================================================================================
-
 
 :f_reset
 
@@ -395,18 +408,18 @@ exit /b
 :register_IDM
 
 echo:
-echo App Registration Details...
+echo Applying registration details...
 echo:
 
 If not defined name set name=All Users
 
 set "reg=HKCU\SOFTWARE\DownloadManager /v FName /t REG_SZ /d "%name%"" & call :_rcont
 set "reg=HKCU\SOFTWARE\DownloadManager /v LName /t REG_SZ /d """ & call :_rcont
-set "reg=HKCU\SOFTWARE\DownloadManager /v Email /t REG_SZ /d "User@email.org"" & call :_rcont
+set "reg=HKCU\SOFTWARE\DownloadManager /v Email /t REG_SZ /d "User@E-mail.domain"" & call :_rcont
 set "reg=HKCU\SOFTWARE\DownloadManager /v Serial /t REG_SZ /d "FOX6H-3KWH4-7TSIN-Q4US7"" & call :_rcont
 
 echo:
-echo Triggering some downloads to create certain registry keys, please wait...
+echo Triggering a few downloads to create certain registry keys, please wait...
 
 set "file=%_temp%\temp.png"
 set _fileexist=
@@ -441,7 +454,7 @@ if not [%foundkeys%] GEQ [7] set _derror=1
 
 echo:
 if not defined _derror (
-echo Successfully created the required registry key
+echo Required registry keys were created successfully.
 ) else (
 if not defined _fileexist call :_color %Red% "Unable to download files with IDM."
 call :_color %Red% "Failed to create required registry keys."
@@ -472,7 +485,7 @@ goto :Check_file
 :delete_queue
 
 echo:
-echo Removing registry keys...
+echo Deleting registry keys...
 echo:
 
 for %%# in (
@@ -498,7 +511,7 @@ exit /b
 :add_key
 
 echo:
-echo Add Registry...
+echo Adding registry key...
 echo:
 
 set "reg="%HKLM%" /v "AdvIntDriverEnabled2""
@@ -509,7 +522,7 @@ reg add %reg% /t REG_DWORD /d "1" /f %nul%
 
 if [%errorlevel%]==[0] (
 set "reg=%reg:"=%"
-echo add - !reg!
+echo Added - !reg!
 ) else (
 set _error=1
 set "reg=%reg:"=%"
@@ -520,6 +533,8 @@ exit /b
 ::========================================================================================================================================
 
 :action
+
+set garbagekeys=0
 
 if exist %regdata% del /f /q %regdata% %nul%
 
@@ -583,11 +598,16 @@ reg delete %reg% /f %nul%
 
 if [%errorlevel%]==[0] (
 set "reg=%reg:"=%"
-echo delete - !reg!
+echo Deleted - !reg!
 ) else (
 set "reg=%reg:"=%"
 set _error=1
 %_psc% write-host 'Failed' -fore 'white' -back 'DarkRed'  -NoNewline & echo  - !reg!
+)
+
+if defined take_permission (
+set /a garbagekeys+=1
+if !garbagekeys! EQU 12 echo --- Do not worry, only empty and leftover registry keys are being deleted.
 )
 
 exit /b
@@ -602,7 +622,7 @@ reg delete %reg% /f %nul%
 
 if not [%errorlevel%]==[0] (
 set "reg=%reg:"=%"
-echo lock - !reg!
+echo Locked - !reg!
 set /a lockedkeys+=1
 ) else (
 set _error=1
@@ -621,9 +641,6 @@ exit /b
 
 ::========================================================================================================================================
 
-::  A lean and mean snippet to set registry ownership and permission recursively
-::  Written by @AveYo aka @BAU
-::  pastebin.com/XTPt0JSC
 
 :reg_own
 
@@ -643,7 +660,7 @@ foreach($n in $subkeys){Own1 "$k\$n"}}}};Own1 $rk[1];if($env:VO){get-acl Registr
 
 :_color
 
-if %winbuild% GEQ 10586 (
+if %_NCS% EQU 1 (
 echo %esc%[%~1%~2%esc%[0m
 ) else (
 call :batcol %~1 "%~2"
@@ -652,7 +669,7 @@ exit /b
 
 :_color2
 
-if %winbuild% GEQ 10586 (
+if %_NCS% EQU 1 (
 echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m
 ) else (
 call :batcol %~1 "%~2" %~3 "%~4"
@@ -660,6 +677,10 @@ call :batcol %~1 "%~2" %~3 "%~4"
 exit /b
 
 ::=======================================
+
+:: Colored text with pure batch method
+:: Thanks to @dbenham and @jeb
+:: https://stackoverflow.com/a/10407642
 
 :: Powershell is not used here because its slow
 
@@ -740,113 +761,5 @@ set  "_White="07""
 set "_Yellow="0E""
 
 exit /b
-
-::========================================================================================================================================
-
-:txt:
-_________________________________
-
-   Activation:
-_________________________________
-
- - This script applies registry lock method to activate Internet download manager (IDM).
-
- - This method requires Internet at the time of activation.
-
- - IDM updates can be installed directly without having to activate again.
-
- - After the activation, if in some case, the IDM starts to show activation nag screen, 
-   then just run the activation option again.
-
-_________________________________
-
-   Reset IDM Activation / Trial:
-_________________________________
-
- - Internet download manager provides 30 days trial period, you can use this script to 
-   reset this Activation / Trial period whenever you want.
- 
- - This option also can be used to restore status if in case the IDM reports fake serial
-   key and other similar errors.
-
-_________________________________
-
-   OS requirement:
-_________________________________
-
- - Project is supported only for Windows 7/8/8.1/10/11 and their Server equivalent.
-
-_________________________________
-
- - Advanced Info:
-_________________________________
-
-   - To add a custom name in IDM license info, edit the line number 5 in the script file.
-
-   - For activation in unattended mode, run the script with /act parameter.
-   - For reset in unattended mode, run the script with /res parameter.
-   - To enable silent mode with above two methods, run the script with /s parameter.
-
-Possible accepted values,
-
-"IAS_xxxxxxxx.cmd" /act
-"IAS_xxxxxxxx.cmd" /res
-"IAS_xxxxxxxx.cmd" /act /s
-"IAS_xxxxxxxx.cmd" /res /s
-
-_________________________________
-
- - Troubleshooting steps:
-_________________________________
-
-   - If any other activator was used to activate IDM previously then make sure to properly
-     uninstall it with that same activator (if there is an option), this is especially important
-     if any registry / firewall block method was used.
-
-   - Uninstall the IDM from control panel.
-
-   - Make sure the latest original IDM setup is used for the installation,
-     you can download it from https://www.internetdownloadmanager.com/download.html
-
-   - Now install the IDM and use the activate option in this script and if failed then,
-
-     - Disable windows firewall with the script option, this help in case of leftover entries of
-       previously used activator (some file patch method also creates firewall entries).
-
-     - Some security programs may block this script, this is false-positive, as long as you 
-       downloaded the file from original post (mentioned below in this page), temporary suspend
-       Antivirus realtime protection, or exclude the downloaded file/extracted folder from scanning.
-
-
-____________________________________________________________________________________________________
-
-   Credits:
-____________________________________________________________________________________________________
-
-   IDM Activation Script
-   E-mail at HappyLeslieAlexander@duck.com
-   Telegram @LeslieAlexander
-   
-   By Leslie Alexander
-
-The Script Author is WindowsAccidit
-
-@Dukun Cabul - Original researcher of this IDM trial reset and activation logic, made an Autoit tool for these methods, IDM-AIO_2020_Final nsaneforums.com/topic/371047--/?do=findComment&comment=1632062
-
-@WindowsAddict - Ported the above Autoit tool to a batch script
-
-@AveYo aka @BAU - Snippet to set registry ownership and permission recursively pastebin.com/XTPt0JSC
-
-@abbodi1406 - Awesome batch script tricks and help
-
-@dbenham - Set buffer height independently of window height stackoverflow.com/a/13351373
-
-@ModByPiash (Me) - Add and fix some missing features.
-
-@vavavr00m - Changed set name to prompt for a name
-
-
-____________________________________________________________________________________________________
-:txt:
 
 ::========================================================================================================================================
