@@ -159,7 +159,7 @@ ________________________________________________________________________________
    
    By Leslie Alexander
 
-   The Script Author is WindowsAccdit
+   The Script Author is WindowsAddict
 
 @Dukun Cabul - Original researcher of this IDM trial reset and activation logic, made an Autoit tool for these methods, IDM-AIO_2020_Final nsaneforums.com/topic/371047--/?do=findComment&comment=1632062
 
